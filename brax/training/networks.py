@@ -593,7 +593,7 @@ def make_policy_network_vision(
     return module.apply(policy_params, obs)
 
   dummy_obs = {
-      key: jnp.zeros((1,) + shape) for key, shape in observation_size.items()
+      key: jnp.zeros((1,) + tuple(shape)) for key, shape in observation_size.items()
   }
   return FeedForwardNetwork(
       init=lambda key: module.init(key, dummy_obs), apply=apply
@@ -627,7 +627,7 @@ def make_value_network_vision(
     return jnp.squeeze(value_module.apply(policy_params, obs), axis=-1)
 
   dummy_obs = {
-      key: jnp.zeros((1,) + shape) for key, shape in observation_size.items()
+      key: jnp.zeros((1,) + tuple(shape)) for key, shape in observation_size.items()
   }
   return FeedForwardNetwork(
       init=lambda key: value_module.init(key, dummy_obs), apply=apply
@@ -676,7 +676,7 @@ def make_policy_network_latents(
     )
 
   dummy_obs = {
-      key: jnp.zeros((1,) + shape) for key, shape in observation_size.items()
+      key: jnp.zeros((1,) + tuple(shape)) for key, shape in observation_size.items()
   }
   return FeedForwardNetwork(
       init=lambda key: module.init(key, dummy_obs), apply=apply
