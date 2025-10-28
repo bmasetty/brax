@@ -218,7 +218,8 @@ class VisionMLP(linen.Module):
   Nature 518, no. 7540 (2015): 529-533
   """
 
-  layer_sizes: Sequence[int]
+  hidden_layer_sizes: Sequence[int] 
+  output_size: int
   activation: ActivationFn = linen.relu
   kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
   activate_final: bool = False
@@ -226,6 +227,10 @@ class VisionMLP(linen.Module):
   normalise_channels: bool = False
   state_obs_key: str = ''
   policy_head: bool = True  # = False is useful for frozen encoders.
+  distribution_type: Literal['normal', 'tanh_normal'] = 'tanh_normal',
+  noise_std_type: Literal['scalar', 'log'] = 'scalar',
+  init_noise_std: float = 1.0,
+  state_dependent_std: bool = False,
 
   @linen.compact
   def __call__(self, data: dict):
@@ -265,13 +270,25 @@ class VisionMLP(linen.Module):
       )  # TODO: Try with dedicated state network
 
     hidden = jnp.concatenate(cnn_outs, axis=-1)
-    return MLP(
-        layer_sizes=self.layer_sizes,
-        activation=self.activation,
-        kernel_init=self.kernel_init,
-        activate_final=self.activate_final,
-        layer_norm=self.layer_norm,
-    )(hidden)
+    module = None
+    if self.distribution_type == 'tanh_normal':
+      module = MLP(layer_sizes=list(self.hidden_layer_sizes) + [self.output_size],
+                  activation=self.activation,
+                  kernel_init=self.kernel_init,
+                  activate_final=self.activate_final,
+                  layer_norm=self.layer_norm,
+                  )
+    elif self.distribution_type == 'normal':
+      module =  PolicyModuleWithStd(param_size=self.output_size,
+                                    hidden_layer_sizes=self.hidden_layer_sizes,
+                                    activation=self.activation,
+                                    kernel_init=self.kernel_init,
+                                    layer_norm=self.layer_norm,
+                                    noise_std_type=self.noise_std_type,
+                                    init_noise_std=self.init_noise_std,
+                                    state_dependent_std=self.state_dependent_std,
+                                  )
+    return module(hidden)
 
 
 def _get_obs_state_size(obs_size: types.ObservationSize, obs_key: str) -> int:
@@ -568,6 +585,10 @@ def make_policy_network_vision(
     output_size: int,
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
     hidden_layer_sizes: Sequence[int] = [256, 256],
+    distribution_type: Literal['normal', 'tanh_normal'] = 'tanh_normal',
+    noise_std_type: Literal['scalar', 'log'] = 'scalar',
+    init_noise_std: float = 1.0,
+    state_dependent_std: bool = False,
     activation: ActivationFn = linen.swish,
     kernel_init: Initializer = jax.nn.initializers.lecun_uniform(),
     layer_norm: bool = False,
@@ -576,12 +597,17 @@ def make_policy_network_vision(
 ) -> FeedForwardNetwork:
   """Creates a policy network for vision inputs."""
   module = VisionMLP(
-      layer_sizes=list(hidden_layer_sizes) + [output_size],
+      hidden_layer_sizes=hidden_layer_sizes,
+      output_size=output_size,
       activation=activation,
       kernel_init=kernel_init,
       layer_norm=layer_norm,
       normalise_channels=normalise_channels,
       state_obs_key=state_obs_key,
+      distribution_type=distribution_type,
+      noise_std_type=noise_std_type,
+      init_noise_std=init_noise_std,
+      state_dependent_std=state_dependent_std,
   )
 
   def apply(processor_params, policy_params, obs):
@@ -604,6 +630,7 @@ def make_value_network_vision(
     observation_size: Mapping[str, Tuple[int, ...]],
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
     hidden_layer_sizes: Sequence[int] = [256, 256],
+    distribution_type: Literal['normal', 'tanh_normal'] = 'tanh_normal',
     activation: ActivationFn = linen.swish,
     kernel_init: Initializer = jax.nn.initializers.lecun_uniform(),
     state_obs_key: str = '',
@@ -611,7 +638,9 @@ def make_value_network_vision(
 ) -> FeedForwardNetwork:
   """Creates a value network for vision inputs."""
   value_module = VisionMLP(
-      layer_sizes=list(hidden_layer_sizes) + [1],
+      hidden_layer_sizes=hidden_layer_sizes,
+      output_size=1,
+      distribution_type=distribution_type,
       activation=activation,
       kernel_init=kernel_init,
       normalise_channels=normalise_channels,
